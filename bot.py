@@ -51,46 +51,42 @@ def get_channel_name(channel_id):
     response = app.client.conversations_info(channel=channel_id)
     return response['channel']['name']
 
-def extract_triggered_message(original_message):
+def extract_triggered_message(original_message, pattern):
     # Extract the Triggered message from the original message
     logger.info("{}".format("Matching message"))
-    match1 = re.search(r'(Triggered:|Recovered:)(.+)>', original_message)
-    match2 = re.search(r'(Name:(.+\n.+))', original_message)
+    match1 = re.search(pattern, original_message)
+    match2 = re.search(r'(Name:(.+\n.+)())', original_message)
     
     if match1:
         match = match1
+        logger.info("Match output: {}".format(match.group(2)))
+        return match.group(2),match.group(3)
     elif match2:
         match = match2
-    else:
-        match = None
-    
-    if match:
         logger.info("Match output: {}".format(match.group(2)))
-        return match.group(2)
-    else:
-        return None
+        return match.group(2), 'Issue'
 
 def is_triggered_message_cached(triggered_message, original_message):
     if "Issue" in original_message:
-        if triggered_message in recent_messages_cache:
-            timestamp = recent_messages_cache[triggered_message]['time']
-            if (datetime.now() - timestamp) <= timedelta(minutes=15):
-                logger.info("{}".format("Triggered within 15mins"))
+        if triggered_message[0] in recent_messages_cache[triggered_message[1]]:
+            timestamp = recent_messages_cache[triggered_message[1]][triggered_message[0]]
+            if (datetime.now() - timestamp) <= timedelta(minutes=2):
+                logger.info("{}".format("Triggered within 2mins"))
                 return True
             else:
-                del recent_messages_cache[triggered_message]
+                del recent_messages_cache[triggered_message[1]][triggered_message[0]]
                 logger.info("recent_messages_cache after delete: {}".format(recent_messages_cache))
                 return False
         else:
             return False
     elif "Triggered" in original_message:
-        if triggered_message in recent_messages_cache:
-            timestamp = recent_messages_cache[triggered_message]['time']
-            if (datetime.now() - timestamp) <= timedelta(minutes=60):
-                logger.info("{}".format("Triggered within 1hr"))
+        if triggered_message[1] in recent_messages_cache:
+            timestamp = recent_messages_cache[triggered_message[1]][triggered_message[0]]
+            if (datetime.now() - timestamp) <= timedelta(minutes=2):
+                logger.info("{}".format("Triggered within 2mins"))
                 return True
             else:
-                del recent_messages_cache[triggered_message]
+                del recent_messages_cache[triggered_message[1]][triggered_message[0]]
                 logger.info("recent_messages_cache after delete: {}".format(recent_messages_cache))
                 return False
         else:
@@ -100,24 +96,27 @@ def is_triggered_message_cached(triggered_message, original_message):
 
 def update_recent_messages_cache(triggered_message, unstable=False):
     # Update the cache with the current timestamp and recovery status for the triggered message
+    #recent_messages_cache[triggered_message[1]] = {triggered_message[0]:datetime.now()}
+    #recent_messages_cache[triggered_message]['time'] = datetime.now()
     if triggered_message not in recent_messages_cache:
-        recent_messages_cache[triggered_message] = {}
-        recent_messages_cache[triggered_message]['time'] = datetime.now()
-        recent_messages_cache[triggered_message]['trigger_count'] = 1
+        recent_messages_cache[triggered_message[1]] = {}
+        recent_messages_cache[triggered_message[1]] = {triggered_message[0]:datetime.now()}
+        recent_messages_cache[triggered_message[1]]['trigger_count'] = 1
     else:
-        recent_messages_cache[triggered_message]['time'] = datetime.now()
-        recent_messages_cache[triggered_message]['trigger_count'] += 1 if unstable else 0
+        recent_messages_cache[triggered_message[1]] = {triggered_message[0]:datetime.now()}
+        recent_messages_cache[triggered_message[1]]['trigger_count'] += 1 if unstable else 0
+        
 def reset_sequence(triggered_message):
     try:
         logger.info("Popping message: {}".format(triggered_message))
-        pop_value = recent_messages_cache.pop(triggered_message, None)
+        pop_value = recent_messages_cache.pop(triggered_message[1], None)
         logger.info("recent_messages_cache after reset: {}".format(recent_messages_cache))
         logger.info("Popped value: {}".format(pop_value))
     except Exception as err:
         logger.error("{}".format(err))
 
-def send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers):
-    triggered_message = extract_triggered_message(original_message)
+def send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers, pattern):
+    triggered_message = extract_triggered_message(original_message, pattern)
 
     try:
         logger.info("sending message to target channel: {}".format(original_message))
@@ -151,7 +150,7 @@ def send_message_to_channel(app, logger, message, original_message, channel_name
             )
             # Update the recent messages cache
             if "started" in original_message and any(trigger in original_message for trigger in triggers):
-                triggered_message = extract_triggered_message(original_message)
+                triggered_message = extract_triggered_message(original_message, pattern)
                 update_recent_messages_cache(triggered_message, unstable=True)
             else:
                 update_recent_messages_cache(triggered_message)
@@ -188,9 +187,10 @@ def handle_filtered_message(message, client):
     
     #for any trigger:
     if "Triggered" in triggered_message or ("started" in original_message and any(trigger in original_message for trigger in triggers)):
-        triggered_message = extract_triggered_message(original_message)
+        pattern = r'(Triggered:)(.+[ ](.+)[ ].+)>'
+        triggered_message = extract_triggered_message(original_message, pattern)
         if not is_triggered_message_cached(triggered_message, original_message):
-            send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers)
+            send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers, pattern)
         else:
             if "started" in original_message and any(trigger in original_message for trigger in triggers):
                 triggered_message = extract_triggered_message(original_message)
@@ -200,13 +200,14 @@ def handle_filtered_message(message, client):
             logger.info("recent_messages_cache after update: {}".format(recent_messages_cache))
 
     elif "Recovered" in triggered_message or ("resolved" in original_message and any(trigger in original_message for trigger in triggers)):
-        triggered_message = extract_triggered_message(original_message)
+        pattern = r'(Recovered:)(.+[ ](.+))>'
+        triggered_message = extract_triggered_message(original_message,pattern)
         if "resolved" in original_message and any(trigger in original_message for trigger in triggers) and recent_messages_cache[triggered_message]['trigger_count'] < 3 :
             logger.info("Skipping due to trigger count < 3: {}".format(recent_messages_cache[triggered_message]['trigger_count']))
         else:
             logger.info("Resetting message: {}".format(original_message))
             reset_sequence(triggered_message)
-            send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers)
+            send_message_to_channel(app, logger, message, original_message, channel_name, target_channel_id, triggers, pattern)
 
     logger.info("{}".format("Finished session"))
 
@@ -219,7 +220,7 @@ except Exception as err:
 else:
     app.debug = True
 
-@app.message(re.compile("|".join(load_filter_patterns("/appz/scripts/webapps/patterns.json"))))
+@app.message(re.compile("|".join(load_filter_patterns("/appz/scripts/patterns.json"))))
 def filter_messages(message, client):
     if message['channel'] in channel_ids:
         handle_filtered_message(message, client)
