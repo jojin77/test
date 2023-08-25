@@ -68,7 +68,7 @@ def extract_triggered_message(original_message, pattern):
 
 def is_triggered_message_cached(triggered_message, original_message):
     if "Issue" in original_message:
-        if triggered_message[0] in recent_messages_cache[triggered_message[1]]:
+        if triggered_message[0] in recent_messages_cache:
             timestamp = recent_messages_cache[triggered_message[1]][triggered_message[0]]
             if (datetime.now() - timestamp) <= timedelta(minutes=2):
                 logger.info("{}".format("Triggered within 2mins"))
