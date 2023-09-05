@@ -97,6 +97,20 @@ def is_triggered_message_cached(triggered_message, original_message):
     else:
         return False
 
+# def update_recent_messages_cache(triggered_message, unstable=False):
+#     # Update the cache with the current timestamp and recovery status for the triggered message
+#     #recent_messages_cache[triggered_message[1]] = {triggered_message[0]:datetime.now()}
+#     #recent_messages_cache[triggered_message]['time'] = datetime.now()
+#     if triggered_message[1] not in recent_messages_cache:
+#         recent_messages_cache[triggered_message[1]] = {}
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]] = {}
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]]['time'] = datetime.now()
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]]['trigger_count'] = 1
+#     else:
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]] = {}
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]]['time'] = datetime.now()
+#         recent_messages_cache[triggered_message[1]][triggered_message[0]]['trigger_count'] += 1 if unstable else 0
+
 def update_recent_messages_cache(triggered_message, unstable=False):
     if triggered_message[1] not in recent_messages_cache:
         recent_messages_cache[triggered_message[1]] = {}
@@ -183,12 +197,14 @@ def handle_filtered_message(message, client):
     # Get the original message text
     original_message = message['text']
     attachments = message.get('attachments', [])
-    #logger.info(f"Received message: {message}")
-    title = [attachments]['fallback'] if attachments else None
+    logger.info(f"Received message: {message}")
+    title = ['event']['attachments'][0]['fallback'] if attachments else None
     triggered_message = title if title else original_message
     channel_id = message['channel']
     channel_name = get_channel_name(channel_id)
-    logger.info(f"Received message: {original_message}")
+    #logger.info(f"Received message: {original_message}")
+    #triggers = ["Triggered"]
+    #recovers = ["Recovered","resolved"]
     triggers = ["Disaster", "High"]
     
     #for any trigger:
